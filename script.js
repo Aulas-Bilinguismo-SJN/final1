@@ -1,15 +1,23 @@
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbz04cSszrDBdYAo6A9OpoUrKugs8emUXl9WspKnGQPdcHWBTBDNXrBxmwMEJh17duorBg/exec';
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRNGfdkC8aMOowMFIusKSmJauSNBDFb5i-AbUaIifpm7HPk1_rOpfi5A9xFjqx_OWDmg/exec';
 
-// URLs de las bases de datos
+// URL fija de BaseA
 const BASE_A_URL = 'https://docs.google.com/spreadsheets/d/1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E/edit?resourcekey=&gid=1744634045#gid=1744634045';
 const BASE_A_ID = '1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E';
-const BASE_B_ID = '10jyI4AD24nrkaQnpzog7hCYKPRs6n87Y6XwYfqRPg-Q'; // ID de BaseB
+
+// ID de BaseB para sincronización
+const BASE_B_ID = '10jyI4AD24nrkaQnpzog7hCYKPRs6n87Y6XwYfqRPg-Q';
 
 let registrosBaseA = [];
-let ultimaActualizacion = 0;
-let intervalSync = null;
+let estadoEquipos = {}; // Cache del estado actual de los equipos
+let intervaloSincronizacion = null;
+let ultimaActualizacion = null;
 
-// === FUNCIONES DE SINCRONIZACIÓN ===
+// === Datos de los 50 items ===
+const items = [];
+for (let i = 1; i <= 50; i++) {
+    items.push({ id: `item_${i}`, nombre: `${i}`, documento: "", profesor: "", materia: "" });
+}
+
 async function cargarBaseAAutomaticamente() {
     const statusElement = document.getElementById('sync-status');
     if (statusElement) {
@@ -27,13 +35,11 @@ async function cargarBaseAAutomaticamente() {
             if (statusElement) {
                 statusElement.textContent = 'BaseA cargada correctamente ✓';
                 statusElement.style.color = '#28a745';
+                // Ocultar el mensaje después de 3 segundos
                 setTimeout(() => {
                     statusElement.textContent = '';
                 }, 3000);
             }
-            // Cargar estado actual de los equipos después de cargar BaseA
-            await cargarEstadoEquipos();
-            actualizarVista();
         } else {
             if (statusElement) {
                 statusElement.textContent = 'Error al cargar BaseA: ' + json.mensaje;
@@ -50,74 +56,68 @@ async function cargarBaseAAutomaticamente() {
     }
 }
 
-// Cargar el estado actual de los equipos desde BaseB
+// Nueva función para cargar el estado actual de los equipos desde BaseB
 async function cargarEstadoEquipos() {
     try {
         const res = await fetch(`${BACKEND_URL}?action=obtenerEstadoEquipos&id=${BASE_B_ID}`);
         const json = await res.json();
         
-        if (json.success && json.data) {
-            // Actualizar el estado de los equipos basado en los datos de BaseB
-            items.forEach(item => {
-                const equipo = json.data.find(e => e.Equipo === item.nombre);
-                if (equipo && equipo.Estado === 'Prestado') {
-                    item.documento = equipo.Documento || '';
-                    item.profesor = equipo.Profesor || '';
-                    item.materia = equipo.Materia || '';
-                } else {
-                    // Si no está en BaseB o está devuelto, limpiar
-                    item.documento = '';
-                    item.profesor = '';
-                    item.materia = '';
-                }
-            });
+        if (json.success) {
+            const nuevaActualizacion = json.ultimaActualizacion;
             
-            ultimaActualizacion = Date.now();
-            actualizarVista();
+            // Solo actualizar si hay cambios
+            if (ultimaActualizacion !== nuevaActualizacion) {
+                ultimaActualizacion = nuevaActualizacion;
+                estadoEquipos = json.equipos || {};
+                
+                // Actualizar los items con el estado desde BaseB
+                actualizarItemsDesdeEstado();
+                actualizarVista();
+                
+                console.log('Estado sincronizado:', estadoEquipos);
+            }
         }
     } catch (error) {
-        console.error("Error al cargar estado de equipos:", error);
+        console.error("Error al sincronizar estado:", error);
     }
 }
 
-// Sincronización periódica cada 10 segundos
-async function sincronizarConServidor() {
-    try {
-        const res = await fetch(`${BACKEND_URL}?action=verificarCambios&timestamp=${ultimaActualizacion}&id=${BASE_B_ID}`);
-        const json = await res.json();
-        
-        if (json.success && json.hayActualizaciones) {
-            await cargarEstadoEquipos();
-            mostrarNotificacion('Estados actualizados automáticamente', 'info');
+// Actualizar los items locales con el estado desde BaseB
+function actualizarItemsDesdeEstado() {
+    items.forEach(item => {
+        const estadoEquipo = estadoEquipos[item.nombre];
+        if (estadoEquipo) {
+            item.documento = estadoEquipo.documento || "";
+            item.profesor = estadoEquipo.profesor || "";
+            item.materia = estadoEquipo.materia || "";
+        } else {
+            // Si no hay estado en BaseB, el equipo está disponible
+            item.documento = "";
+            item.profesor = "";
+            item.materia = "";
         }
-    } catch (error) {
-        console.error("Error en sincronización:", error);
-    }
+    });
 }
 
 // Iniciar sincronización automática
 function iniciarSincronizacion() {
-    if (intervalSync) clearInterval(intervalSync);
-    intervalSync = setInterval(sincronizarConServidor, 10000); // Cada 10 segundos
+    // Cargar estado inicial
+    cargarEstadoEquipos();
+    
+    // Sincronizar cada 3 segundos
+    intervaloSincronizacion = setInterval(cargarEstadoEquipos, 3000);
 }
 
 // Detener sincronización
 function detenerSincronizacion() {
-    if (intervalSync) {
-        clearInterval(intervalSync);
-        intervalSync = null;
+    if (intervaloSincronizacion) {
+        clearInterval(intervaloSincronizacion);
+        intervaloSincronizacion = null;
     }
 }
 
-// === FUNCIONES PRINCIPALES ===
 function buscarPorDocumentoLocal(documento) {
     return registrosBaseA.find(r => String(r["Documento"]).trim() === documento.trim());
-}
-
-// Datos de los 50 items
-const items = [];
-for (let i = 1; i <= 50; i++) {
-    items.push({ id: `item_${i}`, nombre: `${i}`, documento: "", profesor: "", materia: "" });
 }
 
 function mostrarModalItem(itemId) {
@@ -194,16 +194,13 @@ function mostrarModalItem(itemId) {
             return;
         }
 
-        // Mostrar indicador de carga
+        // Mostrar indicador de guardado
         btnGuardar.textContent = 'Guardando...';
         btnGuardar.disabled = true;
 
         try {
             const response = await fetch(BACKEND_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
                     action: "registrarOperacion",
                     equipo: item.nombre,
@@ -214,33 +211,30 @@ function mostrarModalItem(itemId) {
                     nombre: persona["Nombre Completo"] || "",
                     curso: persona["Curso"] || "",
                     telefono: persona["Teléfono"] || "",
-                    comentario: "",
-                    baseB_id: BASE_B_ID // Asegurar que se guarde en BaseB
+                    comentario: ""
                 })
             });
 
             const result = await response.json();
             
             if (result.success) {
-                // Actualizar estado local
+                // Actualizar estado local inmediatamente
                 item.documento = documento;
                 item.profesor = profesor;
                 item.materia = materia;
                 
-                ultimaActualizacion = Date.now();
-                mostrarNotificacion(`Equipo ${item.nombre} prestado correctamente`, 'success');
+                // Forzar sincronización inmediata
+                setTimeout(() => cargarEstadoEquipos(), 500);
                 
                 cerrarModal();
                 actualizarVista();
-                
-                // Forzar sincronización inmediata
-                setTimeout(() => cargarEstadoEquipos(), 1000);
             } else {
-                throw new Error(result.mensaje || 'Error al guardar');
+                alert("Error al guardar: " + (result.mensaje || "Error desconocido"));
+                btnGuardar.textContent = 'Guardar';
+                btnGuardar.disabled = false;
             }
         } catch (error) {
-            console.error('Error al guardar:', error);
-            alert('Error al guardar el préstamo. Intente nuevamente.');
+            alert("Error de conexión al guardar");
             btnGuardar.textContent = 'Guardar';
             btnGuardar.disabled = false;
         }
@@ -307,16 +301,13 @@ function mostrarModalDesmarcar(itemId) {
         const comentario = document.getElementById('comentario').value.trim();
         const persona = buscarPorDocumentoLocal(item.documento);
 
-        // Mostrar indicador de carga
-        btnDesmarcar.textContent = 'Procesando...';
+        // Mostrar indicador de procesamiento
+        btnDesmarcar.textContent = 'Devolviendo...';
         btnDesmarcar.disabled = true;
 
         try {
             const response = await fetch(BACKEND_URL, {
                 method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
                 body: JSON.stringify({
                     action: "registrarOperacion",
                     equipo: item.nombre,
@@ -327,33 +318,30 @@ function mostrarModalDesmarcar(itemId) {
                     nombre: persona?.["Nombre Completo"] || "",
                     curso: persona?.["Curso"] || "",
                     telefono: persona?.["Teléfono"] || "",
-                    comentario: comentario,
-                    baseB_id: BASE_B_ID // Asegurar que se actualice en BaseB
+                    comentario: comentario
                 })
             });
 
             const result = await response.json();
             
             if (result.success) {
-                // Actualizar estado local
+                // Actualizar estado local inmediatamente
                 item.documento = "";
                 item.profesor = "";
                 item.materia = "";
                 
-                ultimaActualizacion = Date.now();
-                mostrarNotificacion(`Equipo ${item.nombre} devuelto correctamente`, 'success');
+                // Forzar sincronización inmediata
+                setTimeout(() => cargarEstadoEquipos(), 500);
                 
                 cerrarModal();
                 actualizarVista();
-                
-                // Forzar sincronización inmediata
-                setTimeout(() => cargarEstadoEquipos(), 1000);
             } else {
-                throw new Error(result.mensaje || 'Error al procesar devolución');
+                alert("Error al devolver: " + (result.mensaje || "Error desconocido"));
+                btnDesmarcar.textContent = 'Devolver';
+                btnDesmarcar.disabled = false;
             }
         } catch (error) {
-            console.error('Error al procesar devolución:', error);
-            alert('Error al procesar la devolución. Intente nuevamente.');
+            alert("Error de conexión al devolver");
             btnDesmarcar.textContent = 'Devolver';
             btnDesmarcar.disabled = false;
         }
@@ -372,13 +360,40 @@ function mostrarModalDesmarcar(itemId) {
     modal.style.display = 'block';
 }
 
-// === FUNCIONES DE UI ===
 function cerrarModal() {
     document.getElementById('modalMetodos').style.display = 'none';
 }
 
 function actualizarVista() {
     crearGrilla();
+    mostrarIndicadorSincronizacion();
+}
+
+// Nueva función para mostrar indicador de sincronización
+function mostrarIndicadorSincronizacion() {
+    let indicador = document.getElementById('indicador-sync');
+    if (!indicador) {
+        indicador = document.createElement('div');
+        indicador.id = 'indicador-sync';
+        indicador.style.position = 'fixed';
+        indicador.style.top = '10px';
+        indicador.style.right = '10px';
+        indicador.style.backgroundColor = '#28a745';
+        indicador.style.color = 'white';
+        indicador.style.padding = '5px 10px';
+        indicador.style.borderRadius = '4px';
+        indicador.style.fontSize = '12px';
+        indicador.style.zIndex = '9999';
+        document.body.appendChild(indicador);
+    }
+    
+    indicador.textContent = '● Sincronizado';
+    
+    // Cambiar color temporalmente al sincronizar
+    indicador.style.backgroundColor = '#007bff';
+    setTimeout(() => {
+        indicador.style.backgroundColor = '#28a745';
+    }, 1000);
 }
 
 function crearGrilla() {
@@ -418,88 +433,30 @@ function crearGrilla() {
 }
 
 function resetearMalla() {
-    if (confirm("¿Deseas resetear todos los Equipos? Esta acción marcará todos los equipos como devueltos.")) {
-        items.forEach(async (item, index) => {
-            if (item.documento) {
-                // Enviar devolución al servidor para cada equipo prestado
-                try {
-                    await fetch(BACKEND_URL, {
-                        method: 'POST',
-                        headers: {
-                            'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({
-                            action: "registrarOperacion",
-                            equipo: item.nombre,
-                            documento: item.documento,
-                            profesor: item.profesor,
-                            materia: item.materia || '',
-                            tipo: "Devolución",
-                            nombre: "",
-                            curso: "",
-                            telefono: "",
-                            comentario: "Devolución masiva - Reset del sistema",
-                            baseB_id: BASE_B_ID
-                        })
-                    });
-                } catch (error) {
-                    console.error(`Error al devolver equipo ${item.nombre}:`, error);
-                }
-            }
-            
-            // Limpiar estado local
+    if (confirm("¿Deseas resetear todos los Equipos?")) {
+        items.forEach(item => {
             item.documento = "";
             item.profesor = "";
             item.materia = "";
         });
-        
-        ultimaActualizacion = Date.now();
-        mostrarNotificacion('Todos los equipos han sido devueltos', 'info');
         actualizarVista();
-        
-        // Forzar sincronización después de un momento
-        setTimeout(() => cargarEstadoEquipos(), 2000);
     }
 }
 
-// Sistema de notificaciones
-function mostrarNotificacion(mensaje, tipo = 'info') {
-    const notif = document.createElement('div');
-    notif.style.cssText = `
-        position: fixed;
-        top: 20px;
-        right: 20px;
-        padding: 15px 20px;
-        border-radius: 5px;
-        color: white;
-        z-index: 10001;
-        max-width: 300px;
-        box-shadow: 0 4px 8px rgba(0,0,0,0.3);
-        transition: all 0.3s ease;
-    `;
-    
-    switch(tipo) {
-        case 'success':
-            notif.style.backgroundColor = '#28a745';
-            break;
-        case 'error':
-            notif.style.backgroundColor = '#dc3545';
-            break;
-        default:
-            notif.style.backgroundColor = '#007bff';
+// Detectar cuando la pestaña se vuelve visible/invisible para optimizar sincronización
+document.addEventListener('visibilitychange', function() {
+    if (document.visibilityState === 'visible') {
+        // Cuando la pestaña se vuelve visible, sincronizar inmediatamente
+        cargarEstadoEquipos();
+        if (!intervaloSincronizacion) {
+            iniciarSincronizacion();
+        }
+    } else {
+        // Cuando la pestaña está oculta, reducir frecuencia o pausar
+        // (opcional: podrías reducir la frecuencia en lugar de pausar completamente)
     }
-    
-    notif.textContent = mensaje;
-    document.body.appendChild(notif);
-    
-    setTimeout(() => {
-        notif.style.opacity = '0';
-        notif.style.transform = 'translateX(100%)';
-        setTimeout(() => document.body.removeChild(notif), 300);
-    }, 3000);
-}
+});
 
-// === EVENT LISTENERS ===
 window.onclick = function (event) {
     const modal = document.getElementById('modalMetodos');
     if (event.target === modal) cerrarModal();
@@ -509,26 +466,18 @@ document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') cerrarModal();
 });
 
-// Manejar visibilidad de la página para optimizar sincronización
-document.addEventListener('visibilitychange', function() {
-    if (document.hidden) {
-        detenerSincronizacion();
-    } else {
-        iniciarSincronizacion();
-        // Sincronizar inmediatamente al volver a la pestaña
-        setTimeout(() => cargarEstadoEquipos(), 500);
-    }
+// Limpiar intervalos al cerrar/recargar la página
+window.addEventListener('beforeunload', function() {
+    detenerSincronizacion();
 });
 
-// === INICIALIZACIÓN ===
-document.addEventListener('DOMContentLoaded', async () => {
+// Inicialización automática al cargar la página
+document.addEventListener('DOMContentLoaded', () => {
     crearGrilla();
-    await cargarBaseAAutomaticamente();
-    iniciarSincronizacion();
+    cargarBaseAAutomaticamente();
     
-    // Mostrar estado de sincronización
-    const statusDiv = document.getElementById('sync-status');
-    if (statusDiv) {
-        statusDiv.innerHTML = '<small style="color: #28a745;">🔄 Sincronización automática activa</small>';
-    }
+    // Iniciar sincronización después de un pequeño delay
+    setTimeout(() => {
+        iniciarSincronizacion();
+    }, 2000);
 });
