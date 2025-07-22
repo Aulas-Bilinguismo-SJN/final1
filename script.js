@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycby2tWhv0OmLaha053L3UF-3emACa_fWpHLiBIL3zGrGRbiAuYhgA_Vfc8QCqgnvuGUTag/exec';
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbyAGQQYMv_pBKL1-NuFEYTAfZJrOqo4P2RpaQwH7rbYc_W8KlN1OCKFf5-Afq2i_o9-PA/exec';
 
 // URL fija de BaseA
 const BASE_A_URL = 'https://docs.google.com/spreadsheets/d/1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E/edit?resourcekey=&gid=1744634045#gid=1744634045';
@@ -14,8 +14,73 @@ let ultimaActualizacion = null;
 
 // === Datos de los 50 items ===
 const items = [];
-for (let i = 1; i <= 40; i++) {
+for (let i = 1; i <= 50; i++) {
     items.push({ id: `item_${i}`, nombre: `${i}`, documento: "", profesor: "", materia: "" });
+}
+
+// Función mejorada para peticiones GET con reintentos
+async function hacerPeticionGET(url, maxReintentos = 3) {
+    for (let intento = 1; intento <= maxReintentos; intento++) {
+        try {
+            console.log(`Intento GET ${intento} de ${maxReintentos} para:`, url);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 15000); // 15 segundos timeout
+            
+            const response = await fetch(url, {
+                method: 'GET',
+                headers: {
+                    'Accept': 'application/json',
+                    'Cache-Control': 'no-cache'
+                },
+                mode: 'cors',
+                cache: 'no-cache',
+                signal: controller.signal
+            });
+            
+            clearTimeout(timeoutId);
+            
+            console.log('Respuesta GET recibida:', {
+                status: response.status,
+                statusText: response.statusText,
+                url: response.url
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const responseText = await response.text();
+            console.log('Texto de respuesta crudo (primeros 200 chars):', responseText.substring(0, 200));
+
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('Error al parsear JSON:', parseError);
+                console.error('Respuesta completa:', responseText);
+                throw new Error('Respuesta no es JSON válido');
+            }
+
+            return result;
+            
+        } catch (error) {
+            console.error(`Error en intento GET ${intento}:`, error);
+            
+            if (error.name === 'AbortError') {
+                console.error('Petición GET cancelada por timeout');
+            }
+            
+            if (intento === maxReintentos) {
+                throw new Error(`GET falló después de ${maxReintentos} intentos: ${error.message}`);
+            }
+            
+            // Espera progresiva entre reintentos
+            const waitTime = 2000 * intento;
+            console.log(`Esperando ${waitTime}ms antes del siguiente intento GET`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+    }
 }
 
 async function cargarBaseAAutomaticamente() {
@@ -28,39 +93,67 @@ async function cargarBaseAAutomaticamente() {
     }
 
     try {
-        const res = await fetch(`${BACKEND_URL}?action=obtenerBaseA&id=${BASE_A_ID}`);
-        const json = await res.json();
+        console.log('Iniciando carga de BaseA con ID:', BASE_A_ID);
+        
+        const url = `${BACKEND_URL}?action=obtenerBaseA&id=${BASE_A_ID}&timestamp=${Date.now()}`;
+        console.log('URL completa:', url);
+        
+        const json = await hacerPeticionGET(url);
+        
+        console.log('Respuesta de BaseA:', json);
+        
         if (json.success) {
-            registrosBaseA = json.data;
+            registrosBaseA = json.data || [];
+            console.log('BaseA cargada exitosamente, registros:', registrosBaseA.length);
+            
             if (statusElement) {
-                statusElement.textContent = 'BaseA cargada correctamente ✓';
+                statusElement.textContent = `BaseA cargada correctamente ✓ (${registrosBaseA.length} registros)`;
                 statusElement.style.color = '#28a745';
+                
                 // Ocultar el mensaje después de 3 segundos
                 setTimeout(() => {
                     statusElement.textContent = '';
                 }, 3000);
             }
         } else {
-            if (statusElement) {
-                statusElement.textContent = 'Error al cargar BaseA: ' + json.mensaje;
-                statusElement.style.color = '#dc3545';
-            }
-            console.error("No se pudo cargar BaseA:", json.mensaje);
+            throw new Error(json.mensaje || 'Error desconocido al cargar BaseA');
         }
     } catch (error) {
+        console.error("Error completo al cargar BaseA:", error);
+        
         if (statusElement) {
-            statusElement.textContent = 'Error de red al cargar BaseA';
+            statusElement.textContent = 'Error al cargar BaseA: ' + error.message;
             statusElement.style.color = '#dc3545';
+            
+            // Agregar botón de reintento
+            const retryButton = document.createElement('button');
+            retryButton.textContent = 'Reintentar';
+            retryButton.style.marginLeft = '10px';
+            retryButton.style.padding = '5px 10px';
+            retryButton.style.backgroundColor = '#007bff';
+            retryButton.style.color = 'white';
+            retryButton.style.border = 'none';
+            retryButton.style.borderRadius = '3px';
+            retryButton.style.cursor = 'pointer';
+            
+            retryButton.onclick = () => {
+                statusElement.removeChild(retryButton);
+                cargarBaseAAutomaticamente();
+            };
+            
+            statusElement.appendChild(retryButton);
         }
-        console.error("Error al cargar BaseA:", error);
+        
+        // Intentar cargar datos de respaldo o continuar sin BaseA
+        console.log('Continuando sin BaseA por el momento...');
     }
 }
 
 // Nueva función para cargar el estado actual de los equipos desde BaseB
 async function cargarEstadoEquipos() {
     try {
-        const res = await fetch(`${BACKEND_URL}?action=obtenerEstadoEquipos&id=${BASE_B_ID}`);
-        const json = await res.json();
+        const url = `${BACKEND_URL}?action=obtenerEstadoEquipos&id=${BASE_B_ID}&timestamp=${Date.now()}`;
+        const json = await hacerPeticionGET(url, 2); // Menos reintentos para sincronización
         
         if (json.success) {
             const nuevaActualizacion = json.ultimaActualizacion;
@@ -76,9 +169,12 @@ async function cargarEstadoEquipos() {
                 
                 console.log('Estado sincronizado:', estadoEquipos);
             }
+        } else {
+            console.warn('Error al cargar estado equipos:', json.mensaje);
         }
     } catch (error) {
         console.error("Error al sincronizar estado:", error);
+        // No mostrar error al usuario para sincronización, solo log
     }
 }
 
@@ -104,8 +200,8 @@ function iniciarSincronizacion() {
     // Cargar estado inicial
     cargarEstadoEquipos();
     
-    // Sincronizar cada 3 segundos
-    intervaloSincronizacion = setInterval(cargarEstadoEquipos, 3000);
+    // Sincronizar cada 5 segundos (aumentado para reducir carga)
+    intervaloSincronizacion = setInterval(cargarEstadoEquipos, 5000);
 }
 
 // Detener sincronización
@@ -117,15 +213,94 @@ function detenerSincronizacion() {
 }
 
 function buscarPorDocumentoLocal(documento) {
+    if (!registrosBaseA || registrosBaseA.length === 0) {
+        console.warn('BaseA no está cargada o está vacía');
+        return null;
+    }
     return registrosBaseA.find(r => String(r["Documento"]).trim() === documento.trim());
+}
+
+// Función mejorada para enviar peticiones POST
+async function enviarPeticionPOST(payload) {
+    const maxReintentos = 3;
+    
+    console.log('Iniciando envío de datos:', payload);
+    
+    for (let intento = 1; intento <= maxReintentos; intento++) {
+        try {
+            console.log(`Intento POST ${intento} de ${maxReintentos}`);
+            
+            const controller = new AbortController();
+            const timeoutId = setTimeout(() => controller.abort(), 30000); // 30 segundos timeout
+
+            const requestConfig = {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                mode: 'cors',
+                cache: 'no-cache',
+                redirect: 'follow',
+                signal: controller.signal
+            };
+
+            const response = await fetch(BACKEND_URL, requestConfig);
+            
+            clearTimeout(timeoutId);
+            
+            console.log('Respuesta POST recibida:', {
+                status: response.status,
+                statusText: response.statusText
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const responseText = await response.text();
+            console.log('Respuesta POST cruda:', responseText.substring(0, 200));
+
+            let result;
+            try {
+                result = JSON.parse(responseText);
+            } catch (parseError) {
+                console.error('Error al parsear respuesta POST:', parseError);
+                throw new Error('Respuesta POST no es JSON válido');
+            }
+
+            console.log('Resultado POST parseado:', result);
+            return result;
+            
+        } catch (error) {
+            console.error(`Error en intento POST ${intento}:`, error);
+            
+            if (error.name === 'AbortError') {
+                console.error('Petición POST cancelada por timeout');
+            }
+            
+            if (intento === maxReintentos) {
+                throw new Error(`POST falló después de ${maxReintentos} intentos: ${error.message}`);
+            }
+            
+            // Espera progresiva entre reintentos
+            const waitTime = 1000 * Math.pow(2, intento - 1);
+            console.log(`Esperando ${waitTime}ms antes del siguiente intento POST`);
+            await new Promise(resolve => setTimeout(resolve, waitTime));
+        }
+    }
 }
 
 function mostrarModalItem(itemId) {
     const item = items.find(i => i.id === itemId);
     if (!item) return;
 
+    // Verificar si BaseA está cargada antes de proceder
     if (registrosBaseA.length === 0) {
-        alert("BaseA aún no se ha cargado. Por favor espere un momento e intente nuevamente.");
+        if (confirm("BaseA aún no se ha cargado. ¿Deseas intentar cargarla nuevamente?")) {
+            cargarBaseAAutomaticamente();
+        }
         return;
     }
 
@@ -198,7 +373,7 @@ function mostrarModalItem(itemId) {
 
         const persona = buscarPorDocumentoLocal(documento);
         if (!persona) {
-            alert("Documento no encontrado en BaseA.");
+            alert("Documento no encontrado en BaseA. Verifica el documento o intenta recargar BaseA.");
             return;
         }
 
@@ -223,7 +398,6 @@ function mostrarModalItem(itemId) {
 
             console.log('Enviando datos:', payload);
 
-            // Función auxiliar para enviar POST con manejo de errores mejorado
             const response = await enviarPeticionPOST(payload);
             console.log('Respuesta recibida:', response);
             
@@ -246,7 +420,17 @@ function mostrarModalItem(itemId) {
             }
         } catch (error) {
             console.error('Error de conexión:', error);
-            alert("Error de conexión al guardar: " + error.message);
+            
+            let mensajeError = "Error de conexión: ";
+            if (error.message.includes('Failed to fetch')) {
+                mensajeError += "No se pudo conectar con el servidor. Verifica tu conexión a internet.";
+            } else if (error.message.includes('timeout') || error.message.includes('Timeout')) {
+                mensajeError += "La operación tardó demasiado tiempo. Intenta nuevamente.";
+            } else {
+                mensajeError += error.message;
+            }
+            
+            alert(mensajeError);
         } finally {
             btnGuardar.textContent = 'Guardar';
             btnGuardar.disabled = false;
@@ -266,45 +450,6 @@ function mostrarModalItem(itemId) {
 
     listaMetodos.appendChild(formulario);
     modal.style.display = 'block';
-}
-
-// Función auxiliar para enviar peticiones POST con mejor manejo de errores
-async function enviarPeticionPOST(payload) {
-    const maxReintentos = 3;
-    
-    for (let intento = 1; intento <= maxReintentos; intento++) {
-        try {
-            console.log(`Intento ${intento} de ${maxReintentos}`);
-            
-            const response = await fetch(BACKEND_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                    'Accept': 'application/json'
-                },
-                body: JSON.stringify(payload),
-                mode: 'cors',
-                cache: 'no-cache'
-            });
-
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
-            }
-
-            const result = await response.json();
-            return result;
-            
-        } catch (error) {
-            console.error(`Error en intento ${intento}:`, error);
-            
-            if (intento === maxReintentos) {
-                throw new Error(`Falló después de ${maxReintentos} intentos: ${error.message}`);
-            }
-            
-            // Esperar antes del siguiente intento
-            await new Promise(resolve => setTimeout(resolve, 1000 * intento));
-        }
-    }
 }
 
 function mostrarModalDesmarcar(itemId) {
@@ -524,17 +669,36 @@ function resetearMalla() {
     }
 }
 
+// Función para verificar conectividad con diagnóstico mejorado
+async function verificarConectividad() {
+    try {
+        console.log('Verificando conectividad...');
+        const response = await fetch(BACKEND_URL + '?action=ping&timestamp=' + Date.now(), {
+            method: 'GET',
+            mode: 'cors',
+            cache: 'no-cache'
+        });
+        
+        console.log('Test de conectividad:', response.status, response.statusText);
+        return response.ok;
+    } catch (error) {
+        console.error('Error en test de conectividad:', error);
+        return false;
+    }
+}
+
 // Detectar cuando la pestaña se vuelve visible/invisible para optimizar sincronización
 document.addEventListener('visibilitychange', function() {
     if (document.visibilityState === 'visible') {
+        console.log('Pestaña visible, reiniciando sincronización...');
         // Cuando la pestaña se vuelve visible, sincronizar inmediatamente
         cargarEstadoEquipos();
         if (!intervaloSincronizacion) {
             iniciarSincronizacion();
         }
     } else {
-        // Cuando la pestaña está oculta, reducir frecuencia o pausar
-        // (opcional: podrías reducir la frecuencia en lugar de pausar completamente)
+        console.log('Pestaña oculta');
+        // Opcional: reducir frecuencia cuando está oculta
     }
 });
 
@@ -556,11 +720,23 @@ window.addEventListener('beforeunload', function() {
 
 // Inicialización automática al cargar la página
 document.addEventListener('DOMContentLoaded', () => {
-    crearGrilla();
-    cargarBaseAAutomaticamente();
+    console.log('DOM cargado, iniciando aplicación...');
     
-    // Iniciar sincronización después de un pequeño delay
-    setTimeout(() => {
-        iniciarSincronizacion();
-    }, 2000);
+    // Crear grilla inmediatamente
+    crearGrilla();
+    
+    // Cargar BaseA con mejor manejo de errores
+    cargarBaseAAutomaticamente().then(() => {
+        console.log('BaseA cargada, iniciando sincronización...');
+        // Iniciar sincronización después de cargar BaseA
+        setTimeout(() => {
+            iniciarSincronizacion();
+        }, 1000);
+    }).catch((error) => {
+        console.error('Error en carga inicial de BaseA:', error);
+        // Iniciar sincronización de todas formas
+        setTimeout(() => {
+            iniciarSincronizacion();
+        }, 3000);
+    });
 });
