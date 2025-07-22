@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbyOggrHpfUj10Rh_JhlzqDNUidwJs6RJbtsNiNgWoUTXBgpbLYGNn-zIQHNT53v2SJSxg/exec';
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwaVOCRisaspQi8OR-bxs5BhrX9ixi1aDR6zvpWRnaoeQCrzvYuH5CstH9QRTfop2o_vA/exec';
 
 // URL fija de BaseA
 const BASE_A_URL = 'https://docs.google.com/spreadsheets/d/1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E/edit?resourcekey=&gid=1744634045#gid=1744634045';
@@ -172,11 +172,19 @@ function mostrarModalItem(itemId) {
     btnGuardar.textContent = 'Guardar';
     btnGuardar.style.backgroundColor = '#007bff';
     btnGuardar.style.color = 'white';
+    btnGuardar.style.border = 'none';
+    btnGuardar.style.padding = '8px 16px';
+    btnGuardar.style.borderRadius = '4px';
+    btnGuardar.style.cursor = 'pointer';
 
     const btnCancelar = document.createElement('button');
     btnCancelar.textContent = 'Cancelar';
     btnCancelar.style.backgroundColor = '#6c757d';
     btnCancelar.style.color = 'white';
+    btnCancelar.style.border = 'none';
+    btnCancelar.style.padding = '8px 16px';
+    btnCancelar.style.borderRadius = '4px';
+    btnCancelar.style.cursor = 'pointer';
 
     btnGuardar.addEventListener('click', async () => {
         const documento = document.getElementById('documento').value.trim();
@@ -197,25 +205,36 @@ function mostrarModalItem(itemId) {
         // Mostrar indicador de guardado
         btnGuardar.textContent = 'Guardando...';
         btnGuardar.disabled = true;
+        btnGuardar.style.backgroundColor = '#6c757d';
 
         try {
+            const payload = {
+                action: "registrarOperacion",
+                equipo: item.nombre,
+                documento: documento,
+                profesor: profesor,
+                materia: materia,
+                tipo: "Préstamo",
+                nombre: persona["Nombre Completo"] || "",
+                curso: persona["Curso"] || "",
+                telefono: persona["Teléfono"] || "",
+                comentario: ""
+            };
+
+            console.log('Enviando datos:', payload);
+
             const response = await fetch(BACKEND_URL, {
                 method: 'POST',
-                body: JSON.stringify({
-                    action: "registrarOperacion",
-                    equipo: item.nombre,
-                    documento,
-                    profesor,
-                    materia,
-                    tipo: "Préstamo",
-                    nombre: persona["Nombre Completo"] || "",
-                    curso: persona["Curso"] || "",
-                    telefono: persona["Teléfono"] || "",
-                    comentario: ""
-                })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
             });
 
+            console.log('Respuesta recibida:', response.status, response.statusText);
+
             const result = await response.json();
+            console.log('Resultado parseado:', result);
             
             if (result.success) {
                 // Actualizar estado local inmediatamente
@@ -228,15 +247,19 @@ function mostrarModalItem(itemId) {
                 
                 cerrarModal();
                 actualizarVista();
+                
+                alert("Préstamo registrado exitosamente");
             } else {
-                alert("Error al guardar: " + (result.mensaje || "Error desconocido"));
-                btnGuardar.textContent = 'Guardar';
-                btnGuardar.disabled = false;
+                console.error('Error del servidor:', result);
+                alert("Error al guardar: " + (result.mensaje || result.error || "Error desconocido"));
             }
         } catch (error) {
-            alert("Error de conexión al guardar");
+            console.error('Error de conexión:', error);
+            alert("Error de conexión al guardar: " + error.message);
+        } finally {
             btnGuardar.textContent = 'Guardar';
             btnGuardar.disabled = false;
+            btnGuardar.style.backgroundColor = '#007bff';
         }
     });
 
@@ -291,11 +314,19 @@ function mostrarModalDesmarcar(itemId) {
     btnDesmarcar.textContent = 'Devolver';
     btnDesmarcar.style.backgroundColor = '#a94442';
     btnDesmarcar.style.color = 'white';
+    btnDesmarcar.style.border = 'none';
+    btnDesmarcar.style.padding = '8px 16px';
+    btnDesmarcar.style.borderRadius = '4px';
+    btnDesmarcar.style.cursor = 'pointer';
 
     const btnCancelar = document.createElement('button');
     btnCancelar.textContent = 'Cancelar';
     btnCancelar.style.backgroundColor = '#6c757d';
     btnCancelar.style.color = 'white';
+    btnCancelar.style.border = 'none';
+    btnCancelar.style.padding = '8px 16px';
+    btnCancelar.style.borderRadius = '4px';
+    btnCancelar.style.cursor = 'pointer';
 
     btnDesmarcar.addEventListener('click', async () => {
         const comentario = document.getElementById('comentario').value.trim();
@@ -304,25 +335,36 @@ function mostrarModalDesmarcar(itemId) {
         // Mostrar indicador de procesamiento
         btnDesmarcar.textContent = 'Devolviendo...';
         btnDesmarcar.disabled = true;
+        btnDesmarcar.style.backgroundColor = '#6c757d';
 
         try {
+            const payload = {
+                action: "registrarOperacion",
+                equipo: item.nombre,
+                documento: item.documento,
+                profesor: item.profesor,
+                materia: item.materia || '',
+                tipo: "Devolución",
+                nombre: persona?.["Nombre Completo"] || "",
+                curso: persona?.["Curso"] || "",
+                telefono: persona?.["Teléfono"] || "",
+                comentario: comentario
+            };
+
+            console.log('Enviando datos de devolución:', payload);
+
             const response = await fetch(BACKEND_URL, {
                 method: 'POST',
-                body: JSON.stringify({
-                    action: "registrarOperacion",
-                    equipo: item.nombre,
-                    documento: item.documento,
-                    profesor: item.profesor,
-                    materia: item.materia || '',
-                    tipo: "Devolución",
-                    nombre: persona?.["Nombre Completo"] || "",
-                    curso: persona?.["Curso"] || "",
-                    telefono: persona?.["Teléfono"] || "",
-                    comentario: comentario
-                })
+                headers: {
+                    'Content-Type': 'application/json'
+                },
+                body: JSON.stringify(payload)
             });
 
+            console.log('Respuesta de devolución:', response.status, response.statusText);
+
             const result = await response.json();
+            console.log('Resultado de devolución:', result);
             
             if (result.success) {
                 // Actualizar estado local inmediatamente
@@ -335,15 +377,19 @@ function mostrarModalDesmarcar(itemId) {
                 
                 cerrarModal();
                 actualizarVista();
+                
+                alert("Equipo devuelto exitosamente");
             } else {
-                alert("Error al devolver: " + (result.mensaje || "Error desconocido"));
-                btnDesmarcar.textContent = 'Devolver';
-                btnDesmarcar.disabled = false;
+                console.error('Error del servidor en devolución:', result);
+                alert("Error al devolver: " + (result.mensaje || result.error || "Error desconocido"));
             }
         } catch (error) {
-            alert("Error de conexión al devolver");
+            console.error('Error de conexión en devolución:', error);
+            alert("Error de conexión al devolver: " + error.message);
+        } finally {
             btnDesmarcar.textContent = 'Devolver';
             btnDesmarcar.disabled = false;
+            btnDesmarcar.style.backgroundColor = '#a94442';
         }
     });
 
@@ -416,14 +462,29 @@ function crearGrilla() {
         div.style.cursor = "pointer";
         div.style.borderRadius = "8px";
         div.style.padding = "10px";
+        div.style.transition = "all 0.3s ease";
+
+        // Efecto hover
+        div.addEventListener('mouseenter', () => {
+            div.style.transform = 'scale(1.05)';
+            div.style.boxShadow = '0 4px 8px rgba(0,0,0,0.2)';
+        });
+        
+        div.addEventListener('mouseleave', () => {
+            div.style.transform = 'scale(1)';
+            div.style.boxShadow = 'none';
+        });
 
         const numero = document.createElement("div");
         numero.textContent = item.nombre;
         numero.style.fontWeight = "bold";
+        numero.style.fontSize = "18px";
 
         const estado = document.createElement("div");
         estado.textContent = item.documento ? "✓" : "○";
         estado.style.color = item.documento ? "green" : "#6c757d";
+        estado.style.fontSize = "16px";
+        estado.style.marginTop = "5px";
 
         div.appendChild(numero);
         div.appendChild(estado);
@@ -457,11 +518,13 @@ document.addEventListener('visibilitychange', function() {
     }
 });
 
+// Cerrar modal al hacer clic fuera de él
 window.onclick = function (event) {
     const modal = document.getElementById('modalMetodos');
     if (event.target === modal) cerrarModal();
 }
 
+// Cerrar modal con tecla Escape
 document.addEventListener('keydown', function (event) {
     if (event.key === 'Escape') cerrarModal();
 });
