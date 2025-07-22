@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRNGfdkC8aMOowMFIusKSmJauSNBDFb5i-AbUaIifpm7HPk1_rOpfi5A9xFjqx_OWDmg/exec';
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbyOggrHpfUj10Rh_JhlzqDNUidwJs6RJbtsNiNgWoUTXBgpbLYGNn-zIQHNT53v2SJSxg/exec';
 
 // URL fija de BaseA
 const BASE_A_URL = 'https://docs.google.com/spreadsheets/d/1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E/edit?resourcekey=&gid=1744634045#gid=1744634045';
