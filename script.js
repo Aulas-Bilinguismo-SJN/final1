@@ -1,4 +1,4 @@
-const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbwaVOCRisaspQi8OR-bxs5BhrX9ixi1aDR6zvpWRnaoeQCrzvYuH5CstH9QRTfop2o_vA/exec';
+const BACKEND_URL = 'https://script.google.com/macros/s/AKfycbxRYP6RR1fsu0kHbGmmEuqlq1UKyOwsN8rJEkJp37dkP1BnHNTT7dXGphE_Y4QYEIdC5g/exec';
 
 // URL fija de BaseA
 const BASE_A_URL = 'https://docs.google.com/spreadsheets/d/1GU1oKIb9E0Vvwye6zRB2F_fT2jGzRvJ0WoLtWKuio-E/edit?resourcekey=&gid=1744634045#gid=1744634045';
@@ -223,20 +223,11 @@ function mostrarModalItem(itemId) {
 
             console.log('Enviando datos:', payload);
 
-            const response = await fetch(BACKEND_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            console.log('Respuesta recibida:', response.status, response.statusText);
-
-            const result = await response.json();
-            console.log('Resultado parseado:', result);
+            // Función auxiliar para enviar POST con manejo de errores mejorado
+            const response = await enviarPeticionPOST(payload);
+            console.log('Respuesta recibida:', response);
             
-            if (result.success) {
+            if (response.success) {
                 // Actualizar estado local inmediatamente
                 item.documento = documento;
                 item.profesor = profesor;
@@ -250,8 +241,8 @@ function mostrarModalItem(itemId) {
                 
                 alert("Préstamo registrado exitosamente");
             } else {
-                console.error('Error del servidor:', result);
-                alert("Error al guardar: " + (result.mensaje || result.error || "Error desconocido"));
+                console.error('Error del servidor:', response);
+                alert("Error al guardar: " + (response.mensaje || response.error || "Error desconocido"));
             }
         } catch (error) {
             console.error('Error de conexión:', error);
@@ -275,6 +266,45 @@ function mostrarModalItem(itemId) {
 
     listaMetodos.appendChild(formulario);
     modal.style.display = 'block';
+}
+
+// Función auxiliar para enviar peticiones POST con mejor manejo de errores
+async function enviarPeticionPOST(payload) {
+    const maxReintentos = 3;
+    
+    for (let intento = 1; intento <= maxReintentos; intento++) {
+        try {
+            console.log(`Intento ${intento} de ${maxReintentos}`);
+            
+            const response = await fetch(BACKEND_URL, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                    'Accept': 'application/json'
+                },
+                body: JSON.stringify(payload),
+                mode: 'cors',
+                cache: 'no-cache'
+            });
+
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}: ${response.statusText}`);
+            }
+
+            const result = await response.json();
+            return result;
+            
+        } catch (error) {
+            console.error(`Error en intento ${intento}:`, error);
+            
+            if (intento === maxReintentos) {
+                throw new Error(`Falló después de ${maxReintentos} intentos: ${error.message}`);
+            }
+            
+            // Esperar antes del siguiente intento
+            await new Promise(resolve => setTimeout(resolve, 1000 * intento));
+        }
+    }
 }
 
 function mostrarModalDesmarcar(itemId) {
@@ -353,17 +383,7 @@ function mostrarModalDesmarcar(itemId) {
 
             console.log('Enviando datos de devolución:', payload);
 
-            const response = await fetch(BACKEND_URL, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json'
-                },
-                body: JSON.stringify(payload)
-            });
-
-            console.log('Respuesta de devolución:', response.status, response.statusText);
-
-            const result = await response.json();
+            const result = await enviarPeticionPOST(payload);
             console.log('Resultado de devolución:', result);
             
             if (result.success) {
